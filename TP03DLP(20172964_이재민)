@@ -1,0 +1,219 @@
+
+def xy_len(p1, p2):
+    a = p1.x - p2.x
+    a = a * 1280
+    b = p1.y - p2.y
+    b = b * 720
+    c = math.sqrt((a * a) + (b * b))
+    return c
+
+def countFingers(image, results, draw=True, display=True):
+    # Get the height and width of the input image.
+    height, width, _ = image.shape
+
+    # Create a copy of the input image to write the count of fingers on.
+    output_image = image.copy()
+
+    # Initialize a dictionary to store the count of fingers of both hands.
+    count = {'RIGHT': 0, 'LEFT': 0}
+
+    # Store the indexes of the tips landmarks of each finger of a hand in a list.
+    fingers_tips_ids = [mp_hands.HandLandmark.INDEX_FINGER_TIP, mp_hands.HandLandmark.MIDDLE_FINGER_TIP,
+                        mp_hands.HandLandmark.RING_FINGER_TIP, mp_hands.HandLandmark.PINKY_TIP]
+
+    # Initialize a dictionary to store the status (i.e., True for open and False for close) of each finger of both hands.
+    fingers_statuses = {'RIGHT_THUMB': False, 'RIGHT_INDEX': False, 'RIGHT_MIDDLE': False, 'RIGHT_RING': False,
+                        'RIGHT_PINKY': False, 'LEFT_THUMB': False, 'LEFT_INDEX': False, 'LEFT_MIDDLE': False,
+                        'LEFT_RING': False, 'LEFT_PINKY': False}
+
+    # Iterate over the found hands in the image.
+    for hand_index, hand_info in enumerate(results.multi_handedness):
+
+        # Retrieve the label of the found hand.
+        hand_label = hand_info.classification[0].label
+        # Retrieve the landmarks of the found hand.
+        hand_landmarks = results.multi_hand_landmarks[hand_index]
+
+        # Iterate over the indexes of the tips landmarks of each finger of the hand.
+        for tip_index in fingers_tips_ids:
+
+            # Retrieve the label (i.e., index, middle, etc.) of the finger on which we are iterating upon.
+            finger_name = tip_index.name.split("_")[0]
+
+            # Check if the finger is up by comparing the y-coordinates of the tip and pip landmarks.
+            if (hand_landmarks.landmark[tip_index].y < hand_landmarks.landmark[tip_index - 2].y):
+                # Update the status of the finger in the dictionary to true.
+                fingers_statuses[hand_label.upper() + "_" + finger_name] = True
+
+                # Increment the count of the fingers up of the hand by 1.
+                count[hand_label.upper()] += 1
+
+        # Retrieve the y-coordinates of the tip and mcp landmarks of the thumb of the hand.
+        thumb_tip_x = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x
+        thumb_mcp_x = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP - 2].x
+
+        # Check if the thumb is up by comparing the hand label and the x-coordinates of the retrieved landmarks.
+        if (hand_label == 'Right' and (thumb_tip_x < thumb_mcp_x)) or (
+                hand_label == 'Left' and (thumb_tip_x > thumb_mcp_x)):
+            # Update the status of the thumb in the dictionary to true.
+            fingers_statuses[hand_label.upper() + "_THUMB"] = True
+
+            # Increment the count of the fingers up of the hand by 1.
+            count[hand_label.upper()] += 1
+
+    # Check if the total count of the fingers of both hands are specified to be written on the output image.
+    if draw:
+        # Write the total count of the fingers of both hands on the output image.
+        cv2.putText(output_image, str(sum(count.values())), (20, 20), cv2.FONT_HERSHEY_SIMPLEX,
+                    1, (20, 255, 155), 3, 10)
+
+    # Check if the output image is specified to be displayed.
+    if display:
+
+        # Display the output image.
+        plt.figure(figsize=[10, 10])
+        plt.imshow(output_image[:, :, ::-1]);
+        plt.title("Output Image");
+        plt.axis('off');
+
+    # Otherwise
+    else:
+
+        # Return the output image, the status of each finger and the count of the fingers up of both hands.
+        return output_image, fingers_statuses, count
+
+def detect_Hand_Landmarks(image, hands, display=False):
+    results = hands.process(image)
+    if display:
+        if results.multi_hand_landmarks:
+          for hand_landmarks in results.multi_hand_landmarks:
+            mp_drawing.draw_landmarks(
+                image,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS,
+                mp_drawing_styles.get_default_hand_landmarks_style(),
+                mp_drawing_styles.get_default_hand_connections_style())
+            #print(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].x * 1280)
+    return results
+
+def check_point(image, results, count):
+    hand_landmarks = results.multi_hand_landmarks[0]
+    check = 0
+    x = 0
+    y = 0
+    if xy_len(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP],
+              hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]) < 40:
+        if xy_len(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_DIP],
+                  hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_DIP]) < 40:
+            x = int(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].x * 1280)
+            y = int(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y * 720)
+            image = cv2.circle(image, (x, y), 1, (20, 255, 155), 5)
+            check = 1
+    return image, x, y, check
+
+def check_motion(points_his_x, points_his_y):
+    motion_result = ""
+    if len(points_his_x) == 40:
+
+        if points_his_y[0] < points_his_y[20] and points_his_y[39] - points_his_y[0] > 150 and points_his_y[20] < \
+                points_his_y[39]:
+            print("down")
+            motion_result = "down"
+            points_his_y.clear()
+            points_his_x.clear()
+
+        elif points_his_y[0] > points_his_y[20] and points_his_y[0] - points_his_y[39] > 150 and points_his_y[20] > \
+                points_his_y[39]:
+            print("up")
+            motion_result = "up"
+            points_his_y.clear()
+            points_his_x.clear()
+
+        elif points_his_x[0] > points_his_y[20] and points_his_x[0] - points_his_x[39] > 150 and points_his_x[20] > \
+                points_his_x[39]:
+            print("left")
+            motion_result = "left"
+            points_his_y.clear()
+            points_his_x.clear()
+
+        elif points_his_x[0] < points_his_y[20] and points_his_x[39] - points_his_x[0] > 150 and points_his_x[20] < \
+                points_his_x[39]:
+            print("right")
+            motion_result = "right"
+            points_his_y.clear()
+            points_his_x.clear()
+        else:
+            points_his_x.pop(0)
+            points_his_y.pop(0)
+    return motion_result
+
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+mp_hands = mp.solutions.hands
+
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+temp = cv2.imread("temp.jpg")
+temp2 = cv2.resize(temp, (1280, 100))
+cv2.imshow("temp", temp2)
+
+points_his_x = []
+points_his_y = []
+menu = 0
+last_motion = ""
+start = time.time()
+with mp_hands.Hands(
+        model_complexity=0,
+        max_num_hands=1,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5) as hands:
+    while cap.isOpened():
+        motion_result = ""
+        success, image = cap.read()
+        if not success:
+            print("Ignoring empty camera frame.")
+            # If loading a video, use 'break' instead of 'continue'.
+            continue
+
+        # To improve performance, optionally mark the image as not writeable to
+        # pass by reference.
+        check = 0
+        image.flags.writeable = False
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = cv2.flip(image, 1)
+
+        results = detect_Hand_Landmarks(image, hands)
+        # Draw the hand annotations on the image.
+        image.flags.writeable = True
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        if menu == 1:
+            image[0:100, 0:1280] = temp2
+        # Flip the image horizontally for a selfie-view display.
+        if results.multi_hand_landmarks:
+            image, fingers_statuses, count = countFingers(image, results, display=False)
+            iamge, x, y, check = check_point(image, results, count)
+        if check == 1:
+            points_his_x.append(x)
+            points_his_y.append(y)
+            motion_result = check_motion(points_his_x, points_his_y)
+            if motion_result != "":
+                if motion_result == "down" and menu == 0:
+                    menu = 1
+                elif motion_result == "up" and menu == 1:
+                    menu = 0
+                start = time.time()
+                last_motion = motion_result
+        else:
+            points_his_y.clear()
+            points_his_x.clear()
+        if time.time() - start < 5:
+            print(time.time() - start)
+            cv2.putText(image, last_motion, (1000, 20), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, (20, 255, 155), 3, 10)
+
+        cv2.imshow('MediaPipe Hands', image)
+        if cv2.waitKey(5) & 0xFF == 27:
+            break
+cap.release()
